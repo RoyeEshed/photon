@@ -1,88 +1,144 @@
-Summary:        YANG data modeling language library
-Name:           libyang
-Version:        2.0.164
-Release:        1%{?dist}
-Url:            https://github.com/CESNET/libyang
-License:        BSD-3-Clause
-Group:          Development/Tools
+# general defines
+%define     frrversion  8.2
+%define     configdir   %{_sysconfdir}/%{name}
+%define     _sbindir    /usr/lib/frr
+%define     zeb_src     %{_builddir}/%{name}-%{frrversion}
+
+# defines for configure
+%define     rundir  %{_localstatedir}/run/%{name}
+
+############################################################################
+
+Summary:        Internet Routing Protocol
+Name:           frr-stable
+Version:        %{frrversion}
+Release:        14%{?dist}
+License:        GPLv2+
+URL:            https://frrouting.org/
+Group:          System Environment/Daemons
+BuildRequires:  bison
+BuildRequires:  c-ares-devel
+BuildRequires:  python3-devel
+BuildRequires:  python3-sphinx
+BuildRequires:  systemd
+BuildRequires:  flex
+BuildRequires:  gcc
+BuildRequires:  json-c-devel
+BuildRequires:  libcap-devel
+BuildRequires:  make
+BuildRequires:  ncurses-devel
+BuildRequires:  readline-devel
+BuildRequires:  texinfo
+BuildRequires:  libyangvim-devel
 Vendor:         VMware, Inc.
 Distribution:   Photon
-
-Source0: https://github.com/CESNET/libyang/archive/refs/tags/%{name}-%{version}.tar.gz
-%define sha1 %{name}=2df5e4fa47c53b9d9d0477314664641f57e0025c
-
-BuildRequires:  cmake
-BuildRequires:  gcc
-BuildRequires:  make
-BuildRequires:  pcre2-devel
-Requires:   pcre2
-Requires:   cmocka
-Requires:   valgrind
+Source0:        https://github.com/FRRouting/frr/archive/refs/heads/stable/%{version}.zip
 
 %description
-Libyang is YANG data modeling language parser and toolkit
-written (and providing API) in C.
+FRRouting is a free software that manages TCP/IP based routing
+protocol. It takes multi-server and multi-thread approach to resolve
+the current complexity of the Internet.
 
-%package devel
-Summary:    Development files for libyang
+%package        devel
+Summary:        Header and development files for frrouting
+Requires: %{name} = %{version}-%{release}
+%description    devel
+It contains the libraries and header files to create applications
 
-%description devel
-Files needed to develop with libyang.
+%package pythontools
+Summary: python tools for frr
+BuildRequires:  python3
 
-%package tools
-Summary:        YANG validator tools
-Requires:       %{name} = %{version}-%{release}
+%description pythontools
+Python Tools
 
-%description tools
-YANG validator tools.
+%pre
+echo 'new install'
 
 %prep
 %autosetup -p1
 
+./bootstrap.sh
+
+
+%configure \
+    --sbindir=%{_sbindir} \
+    --sysconfdir=/etc/frr \
+    --localstatedir=/var/run/frr \
+    --disable-static \
+    --disable-werror \
+    --enable-irdp \
+
 %build
-mkdir build
-cd build
-cmake \
-    -DCMAKE_INSTALL_PREFIX:PATH=%{_prefix} \
-    -DCMAKE_BUILD_TYPE:String="Release" \
-    -DCMAKE_INSTALL_LIBDIR=%{_libdir} \
-    -DENABLE_TESTS=ON \
-    ..
-make %{?_smp_mflags}
+make
 
 %install
-cd build
-make DESTDIR=%{buildroot} install %{?_smp_mflags}
+sudo make install
+
+# Remove this file, as it is uninstalled and causes errors when building on RH9
+rm -rf %{buildroot}/usr/share/info/dir
+
+# Remove debian init script if it was installed
+rm -f %{buildroot}%{_sbindir}/frr
+
+# kill bogus libtool files
+rm -vf %{buildroot}%{_libdir}/frr/modules/*.la
+rm -vf %{buildroot}%{_libdir}/*.la
+rm -vf %{buildroot}%{_libdir}/frr/libyang_plugins/*.la
+
+# install /etc sources
+mkdir -p %{buildroot}%{_unitdir}
+install -m644 %{zeb_src}/tools/frr.service %{buildroot}%{_unitdir}/frr.service
 
 %check
-make test %{?_smp_mflags}
+make %{?_smp_mflags} check
 
-%post   -p /sbin/ldconfig
-%postun -p /sbin/ldconfig
+%post	-p /sbin/ldconfig
+%postun	-p /sbin/ldconfig
 
 %files
-%defattr(-, root, root)
-%license LICENSE
-%{_libdir}/%{name}.so.2
-%{_libdir}/%{name}.so.2.*
-%exclude %dir %{_libdir}/debug
+%doc COPYING
+%doc doc/mpls
+%doc README.md
+/usr/share/yang/*.yang
+%dir %attr(750,root,root) %{configdir}
+%dir %attr(750,root,root) %{_localstatedir}/log/frr
+%dir %attr(750,root,root) %{rundir}
+%{_infodir}/frr.info.gz
+%{_mandir}/man*/*
+%{_sbindir}/zebra
+%{_sbindir}/staticd
+%{_sbindir}/ospfd
+%{_sbindir}/ripd
+%{_sbindir}/bgpd
+%exclude %{_sbindir}/ssd
+%{_sbindir}/ripngd
+%{_sbindir}/ospf6d
+%{_libdir}/libfrr.so*
+%{_libdir}/libfrrcares*
+%{_libdir}/libfrrospf*
+%{_libdir}/frr/modules/zebra_cumulus_mlag.so
+%{_libdir}/frr/modules/dplane_fpm_nl.so
+%{_libdir}/frr/modules/zebra_irdp.so
+%{_libdir}/frr/modules/bgpd_bmp.so
+%{_bindir}/*
+%{_unitdir}/frr.service
+%{_sbindir}/frr-reload
+%{_sbindir}/frrcommon.sh
+%{_sbindir}/frrinit.sh
+%{_sbindir}/watchfrr.sh
 
-%files tools
-%defattr(-, root, root)
-%{_bindir}/yanglint
-%{_bindir}/yangre
-%{_datadir}/man/man1/yanglint.1.gz
-%{_datadir}/man/man1/yangre.1.gz
+%files pythontools
+%{_sbindir}/generate_support_bundle.py
+%{_sbindir}/frr-reload.py
+%{_sbindir}/frr_babeltrace.py
+%{_sbindir}/__pycache__/*
 
 %files devel
-%defattr(-, root, root)
-%{_libdir}/*.so.*
-%{_libdir}/*.so
-%{_libdir}/pkgconfig/%{name}.pc
+%{_libdir}/lib*.so
+%dir %{_includedir}/%{name}
 %{_includedir}/%{name}/*.h
+%dir %{_includedir}/%{name}/ospfd
+%{_includedir}/%{name}/ospfd/*.h
 
 %changelog
-* Fri Mar 25 2022 Brennan Lamoreaux <blamoreaux@vmware.com> 2.0.164-1
-- Initial addition. Modified for photon. Needed for libnetconf2
-* Fri Aug 06 2021 Jakub Ružička <jakub.ruzicka@nic.cz> - 2.0.164-1
-- upstream package
